@@ -2,15 +2,16 @@ extern crate rls_analysis;
 extern crate rls_data; 
 extern crate serde_json;
 
-use std::{path, env};
+use self::rls_analysis::{AnalysisHost, DefKind};
+use self::rls_data::config::Config as AnalysisConfig;
+
+use std;
+use std::path;
 use std::process::{Command, Stdio};
 
-use rls_analysis::{AnalysisHost, DefKind};
-use rls_data::config::Config as AnalysisConfig;
-
-pub fn start_analysis(path: &path::Path) -> Result< (), Box<std::error::Error> >{
+pub fn run_analysis(path: &path::Path) -> Result< Vec<rls_analysis::Def>, Box<std::error::Error> >{
     let analysis = rls_analysis::AnalysisHost::new(rls_analysis::Target::Debug);
-
+    let mut func_list: Vec<rls_analysis::Def> = Vec::new();
     //path_prefix: Cargo's working directory and will contain the target directory
     //base_dir: is the root of the whole workspace
 
@@ -20,27 +21,33 @@ pub fn start_analysis(path: &path::Path) -> Result< (), Box<std::error::Error> >
     roots.sort_unstable_by(|(_, name1), (_, name2)| name1.cmp(name2));
 
     for (id, membr_name) in roots {
-        let def = analysis.get_def(id)?;
-        println!("Root: {:?} {:?} {:?} {}", id, def.kind, def.name, membr_name );
-        traverse(id, def , &analysis, 0)?;
+        //TODO: extract userProjectLazy from the Cargo.toml of lazy lib
+        if membr_name == "userProjectLazy" {
+            let def = analysis.get_def(id)?;
+            println!("Root: {:?} {:?} {:?} {}", id, def.kind, def.name, membr_name );
+            traverse(id, def , &analysis, 0, &mut func_list)?;
+        }
     }
-    Ok(())
+    Ok(func_list)
 
 }
 
-fn traverse(id: rls_analysis::Id, defin: rls_analysis::Def , analysis: &AnalysisHost, mut indent: u32) 
-    -> Result < (), Box<std::error::Error>> {
+fn traverse(id: rls_analysis::Id, defin: rls_analysis::Def , analysis: &AnalysisHost, mut indent: u32, funcs: &mut Vec<rls_analysis::Def>) 
+    -> Result < () , Box<std::error::Error>> {
     println!("{}{:?} {:?} {:?}", " ".repeat(indent as usize), id, defin.kind, defin.name);
     match defin.kind {
         DefKind::Function 
-        | DefKind::Method => emit_sig(&analysis, &defin, &indent)?,
+        | DefKind::Method => {
+            emit_sig(&analysis, &defin, &indent)?;
+            funcs.push(defin.clone());
+        }
         _ => (),
     }
     indent += 2;
     let mut children = analysis.for_each_child_def(id, |id, def| (id, def.clone()) )?;
     children.sort_unstable_by(|(_, def1), (_, def2)| def1.name.cmp(&def2.name));
     for (child, def) in children {
-        traverse(child, def,  analysis, indent)?;
+        traverse(child, def,  analysis, indent, funcs)?;
     }
     Ok(())
 }
