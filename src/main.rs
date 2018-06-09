@@ -31,9 +31,9 @@ fn main() -> Result<(), Box<std::error::Error>>{
 }
 
 fn create_client_rs(funcs: Vec<Def>) {
-    let re_name = Regex::new(r"^fn (?P<name>.*)\(").unwrap();
-    let re_par_list = Regex::new(r"\((?P<par>.+):(?P<ty>.+),.*?\)").unwrap(); // TODO: cover foo()
-
+    let re_name = Regex::new(r"^fn (?P<name>.*?)\(").unwrap();
+    let re_par_list = Regex::new(r"(?P<par>\w+): *(?P<ty>[^,)]+)").unwrap();
+    let re_no_parm = Regex::new(r"^fn \w+ *\(\)").unwrap();
     let mut _tokens = TokenStream::new();
 
     for func in funcs {
@@ -43,12 +43,12 @@ fn create_client_rs(funcs: Vec<Def>) {
         println!("{}", text);
 
         let fn_name = re_name.captures(&text).expect("Panic! no fn_name!!").get(1).unwrap().as_str();
-
-        //let par_list = re_par_list.captures(&text).expect("Panic! no par_list!!").get(1).unwrap().as_str();
-        for caps in re_par_list.captures_iter(&text){
-            parms.push(caps.get(1).unwrap().as_str());
-            types.push(caps.get(2).unwrap().as_str());
-        } 
+        if !re_no_parm.is_match(&text) { // fn has params
+            for caps in re_par_list.captures_iter(&text){
+                parms.push(caps.get(1).unwrap().as_str());
+                types.push(caps.get(2).unwrap().as_str());
+            } 
+        }
         //let parms = par_list.split(',').;
 
         println!("fn_name {}\nparms {:?}\ntypes {:?}", fn_name, parms, types);
