@@ -1,4 +1,4 @@
-extern crate rls_analysis;
+pub extern crate rls_analysis;
 extern crate rls_data; 
 extern crate serde_json;
 

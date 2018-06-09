@@ -7,3 +7,6 @@ authors = ["nemamdoost"]
 rls-analysis = {path = "/Users/nemamdoost/project/rls-analysis"}
 rls-data = {version = "0.16.0", features = ["serialize-serde"] }
 serde_json = "1.0.18"
+quote = "0.6.3"
+proc-macro2 = "0.4.6"
+regex = "1.0.0"
