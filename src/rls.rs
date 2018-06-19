@@ -14,7 +14,7 @@ pub fn run_analysis(path: &path::Path) -> Result< Vec<rls_analysis::Def>, Box<st
     let mut func_list: Vec<rls_analysis::Def> = Vec::new();
     //path_prefix: Cargo's working directory and will contain the target directory
     //base_dir: is the root of the whole workspace
-
+    println!("rls_analysis on {:?}", path);
     generate_analysis_files(path)?;  // necessary to create the save-analysis dir
     analysis.reload(path, path)?;
     let mut roots = analysis.def_roots()?;

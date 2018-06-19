@@ -15,7 +15,7 @@ mod rls;
 
 use rls::run_analysis;
 use rls::rls_analysis::Def as Def;
-use regex::{Regex, RegexSet};
+use regex::Regex;
 
 fn main() -> Result<(), Box<std::error::Error>>{
     let args: Vec<String> = env::args().collect();
@@ -24,14 +24,14 @@ fn main() -> Result<(), Box<std::error::Error>>{
         path = path::Path::new(&args[1]);
     } 
     println!("Wroking path: {:?}", path);
-    let funcs = run_analysis(path)?;
+    let funcs = run_analysis(&path.join("lazy"))?;
 
-    create_dylib_rs(funcs);
+    create_dylib_rs(funcs, path);
 
     Ok(())
 }
 
-fn create_dylib_rs(funcs: Vec<Def>) {
+fn create_dylib_rs(funcs: Vec<Def>, path: &path::Path) {
     let re_name = Regex::new(r"^fn (?P<name>.*?)\(").unwrap();
     let re_par_list = Regex::new(r"(?P<par>\w+): *(?P<ty>[^,)]+)").unwrap();
     let re_no_parm = Regex::new(r"^fn \w+ *\(\)").unwrap();
@@ -101,8 +101,14 @@ fn create_dylib_rs(funcs: Vec<Def>) {
     } // end of forr on funcs
     println!("{}", content);
 
-    let mut file = match fs::File::create("nvdDylib.rs") {
-        Err(oops) => panic! ("couldn't creat file! {}", oops),
+    match fs::create_dir_all(path.join("dylib/src")) {
+        Err(oops) => panic!("Couldn't creat dlib/ {}", oops),
+        Ok(_) => (),
+    }
+
+    let src_file = path.join("dylib/src/lib.rs");
+    let mut file = match fs::File::create(&src_file) {
+        Err(oops) => panic! ("couldn't creat src/lib.rs file! {} {:?}", oops, src_file),
         Ok(fl) => fl,
     };
 
@@ -112,4 +118,27 @@ fn create_dylib_rs(funcs: Vec<Def>) {
         Ok(_) => (),
     }
 
+    let cargo_content = "[package]
+name = \"userProjectDylib\"
+version = \"0.0.1\"
+
+[lib]
+path = \"./src/lib.rs\"
+crate-type = [\"cdylib\"]
+
+[dependencies]
+userProjectLazy = {path = \"../lazy\"}";
+
+    let cargo_file = path.join("dylib/Cargo.toml");
+    let mut file = match fs::File::create(&cargo_file) {
+        Err(oops) => panic! ("couldn't creat Cargo.toml file! {} {:?}", oops, cargo_file),
+        Ok(fl) => fl,
+    };
+
+    let output = format!("{}", cargo_content);
+    match file.write_all(output.as_bytes()) {
+        Err(oops) => panic!("cannot write into file {}", oops),
+        Ok(_) => (),
+    }
+    println!("dylib/ contents successfully created!" );
 }
