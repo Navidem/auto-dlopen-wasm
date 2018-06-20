@@ -117,7 +117,7 @@ fn generate_analysis_files(dir : &path::Path) -> Result <(), Box<std::error::Err
     if !status.success() {
         println!("ERROR!" );
         println!("{:?}", command );        
-        println!("child process spawned: {:?}", status);
+        panic!("child process spawned: {:?}", status);
     }
     Ok(())
 

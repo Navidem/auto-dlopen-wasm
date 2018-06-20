@@ -172,33 +172,52 @@ userProjectLazy = {path = \"../lazy\"}";
         Err(oops) => panic!("cannot write into file {}", oops),
         Ok(_) => (),
     }
+
+    let mut command = Command::new("rustfmt");
+    command.arg(src_file);
+    match command.spawn(){
+        Err(oops) => panic!("rustfmt faild! {}", oops),
+        Ok(_) => (),
+    }
     println!("dylib/ contents successfully created!" );
 
 }
 
-// impl ToTokens for [u8] {
-//     fn to_tokens(&self, tokens: &mut TokenStream){
-//         quote! (
-//             self.as_bytes()
-//         ).to_tokens(&mut tokens)
-//     }
-// }
 
 fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path) {
-    let func = func_list.get(0).unwrap();
+    //let func = func_list.get(0).unwrap();
+    let mut trait_ts = TokenStream::new();
+    let mut impl_ts = TokenStream::new();
 
-    let name = &func.name;
-    let literal_name = proc_macro2::Literal::byte_string(format!("{}",name).as_bytes()); //required for lib.get(b"symbol")
-    let param_list_decl = &func.param_list_decl;
-    let param_list_call = &func.param_list_call;
-    let ret_expression = &func.ret_expression;
+    for func in func_list {
+        let name = &func.name;
+        let literal_name = proc_macro2::Literal::byte_string(format!("{}",name).as_bytes()); //required for lib.get(b"symbol")
+        let param_list_decl = &func.param_list_decl;
+        let param_list_call = &func.param_list_call;
+        let ret_expression = &func.ret_expression;
 
-    let mut content = quote! {
+        quote! (
+            fn #name(&self, #param_list_decl) #ret_expression;
+        ).to_tokens(&mut trait_ts);
+
+        quote! (
+            fn #name(&self, #param_list_decl) #ret_expression { 
+                let lib = &self.dylib;
+                unsafe{
+                    let func: Symbol<unsafe extern fn (#param_list_decl) #ret_expression> = lib.get(#literal_name).unwrap();
+                    func(#param_list_call)
+                }
+            }
+        ).to_tokens(&mut impl_ts);
+    }
+
+
+    let content = quote! {
         extern crate libloading;
         use libloading::{Library,Symbol};
 
         pub trait LazyDylibTrait {
-            fn #name(&self, #param_list_decl) #ret_expression;
+            #trait_ts
         }
 
         pub struct LazyDylib {
@@ -212,17 +231,11 @@ fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path) {
 
             }
         }
-    };
-    quote!(
         impl LazyDylibTrait for LazyDylib {
-            fn #name(&self, #param_list_decl) #ret_expression {  
-                let lib = &self.dylib;
-                unsafe{
-                    let func: Symbol<unsafe extern fn (#param_list_decl) #ret_expression> = lib.get(#literal_name).unwrap();
-                    func(#param_list_call)
-                }
-            }
-        }).to_tokens(&mut content);
+            #impl_ts
+        }
+    };
+
 
     println!("{}", content);
 
@@ -264,6 +277,25 @@ libloading = \"0.5.0\"";
         Ok(_) => (),
     }
 
-println!("client/ contents successfully created!" );
+    let mut command = Command::new("rustfmt");
+    command.arg(src_file);
+    match command.spawn(){
+        Err(oops) => panic!("rustfmt faild! {}", oops),
+        Ok(_) => (),
+    }
 
+    println!("client/ contents successfully created!" );
+
+}
+
+pub fn generate_client() {
+    //rls analysis
+    //create func tokens
+    //write client
+}
+
+pub fn generate_dylib () {
+    //rls analysis
+    //create func tokens
+    //write dylib
 }
