@@ -136,16 +136,7 @@ pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path) {
         Err(oops) => panic!("cannot write into file {}", oops),
         Ok(_) => (),
     }
-
-// no need to create Cargo.toml
-/*     
- */
-    let mut command = Command::new("rustfmt");
-    command.arg(src_file);
-    match command.spawn(){
-        Err(oops) => panic!("rustfmt faild! {}", oops),
-        Ok(_) => (),
-    }
+    format_src(src_file);
     println!("dylib/ contents successfully created!" );
 
 }
@@ -222,16 +213,7 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path) {
         Err(oops) => panic!("cannot write into file {}", oops),
         Ok(_) => (),
     }
-
-//no need to write into Cargo.toml
-/*      */
-
-    let mut command = Command::new("rustfmt");
-    command.arg(src_file);
-    match command.spawn(){
-        Err(oops) => panic!("rustfmt faild! {}", oops),
-        Ok(_) => (),
-    }
+    format_src(src_file);
 
     println!("client/ contents successfully created!" );
 
@@ -313,6 +295,7 @@ auto-dlopen = {path = \"../../auto-dlopen\"}";
 fn write_build_rs(path: &path::Path, dest: &str) {
     let path_string = String::from(path.to_str().unwrap());
     let method_name = Ident::new(&("generate_".to_owned()+dest), Span::call_site());
+    let err_msg = "Error! could not generate ".to_owned() + dest;
     let content = quote!{
         extern crate auto_dlopen as dlopen;
         use std::path;
@@ -321,7 +304,7 @@ fn write_build_rs(path: &path::Path, dest: &str) {
             let top_level_path = path::Path::new(#path_string);
             match dlopen::#method_name(top_level_path) {
                 Ok(_) => (),
-                _ => panic!("Error! coudln't generate #dest/")
+                _ => panic!(#err_msg)
             }
         }
     };
@@ -336,8 +319,11 @@ fn write_build_rs(path: &path::Path, dest: &str) {
         Err(oops) => panic!("cannot write into file {}", oops),
         Ok(_) => (),
     }
+    format_src(src_file);
 
+}
 
+fn format_src (src_file: path::PathBuf){
     let mut command = Command::new("rustfmt");
     command.arg(src_file);
     match command.spawn(){
