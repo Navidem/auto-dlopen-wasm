@@ -138,28 +138,7 @@ pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path) {
     }
 
 // no need to create Cargo.toml
-/*     let cargo_content = "[package]
-name = \"userProjectDylib\"
-version = \"0.0.1\"
-
-[lib]
-path = \"./src/lib.rs\"
-crate-type = [\"cdylib\"]
-
-[dependencies]
-userProjectLazy = {path = \"../lazy\"}";
-
-    let cargo_file = path.join("dylib/Cargo.toml");
-    let mut file = match fs::File::create(&cargo_file) {
-        Err(oops) => panic! ("couldn't create Cargo.toml file! {} {:?}", oops, cargo_file),
-        Ok(fl) => fl,
-    };
-
-    let output = format!("{}", cargo_content);
-    match file.write_all(output.as_bytes()) {
-        Err(oops) => panic!("cannot write into file {}", oops),
-        Ok(_) => (),
-    }
+/*     
  */
     let mut command = Command::new("rustfmt");
     command.arg(src_file);
@@ -245,27 +224,7 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path) {
     }
 
 //no need to write into Cargo.toml
-/*     let cargo_content = "[package]
-name = \"userProjectClient\"
-version = \"0.0.1\"
-
-[lib]
-path = \"./src/lib.rs\"
-
-[dependencies]
-libloading = \"0.5.0\"";
-
-    let cargo_file = path.join("client/Cargo.toml");
-    let mut file = match fs::File::create(&cargo_file) {
-        Err(oops) => panic! ("couldn't create Cargo.toml file! {} {:?}", oops, cargo_file),
-        Ok(fl) => fl,
-    };
-
-    let output = format!("{}", cargo_content);
-    match file.write_all(output.as_bytes()) {
-        Err(oops) => panic!("cannot write into file {}", oops),
-        Ok(_) => (),
-    } */
+/*      */
 
     let mut command = Command::new("rustfmt");
     command.arg(src_file);
@@ -292,4 +251,98 @@ pub fn generate_dylib (path: &path::Path) -> Result<(), Box<std::error::Error>> 
     let token_stream = create_func_tokens(funcs);
     write_dylib(&token_stream, path);
     Ok(())
+}
+
+pub fn generate_build_scripts(path: &path::Path){
+    //dylib: build.rs & cargo
+    write_build_rs(path, "dylib");
+    let dylib_cargo_content = "[package]
+name = \"userProjectDylib\"
+version = \"0.0.1\"
+
+[lib]
+path = \"./src/lib.rs\"
+crate-type = [\"cdylib\"]
+
+[dependencies]
+userProjectLazy = {path = \"../lazy\"}
+[build-dependencies]
+auto-dlopen = {path = \"../../auto-dlopen\"}";
+
+    let cargo_file = path.join("dylib/Cargo.toml");
+    let mut file = match fs::File::create(&cargo_file) {
+        Err(oops) => panic! ("couldn't create dylib/Cargo.toml file! {} {:?}", oops, cargo_file),
+        Ok(fl) => fl,
+    };
+
+    let output = format!("{}", dylib_cargo_content);
+    match file.write_all(output.as_bytes()) {
+        Err(oops) => panic!("cannot write into file {}", oops),
+        Ok(_) => (),
+    }
+
+
+    //client cargo and build.rs
+    write_build_rs(path, "client");
+    let client_cargo_content = "[package]
+name = \"userProjectClient\"
+version = \"0.0.1\"
+
+[lib]
+path = \"./src/lib.rs\"
+
+[dependencies]
+libloading = \"0.5.0\"
+[build-dependencies]
+auto-dlopen = {path = \"../../auto-dlopen\"}";
+
+    let cargo_file = path.join("client/Cargo.toml");
+    let mut file = match fs::File::create(&cargo_file) {
+        Err(oops) => panic! ("couldn't create Cargo.toml file! {} {:?}", oops, cargo_file),
+        Ok(fl) => fl,
+    };
+
+    let output = format!("{}", client_cargo_content);
+    match file.write_all(output.as_bytes()) {
+        Err(oops) => panic!("cannot write into file {}", oops),
+        Ok(_) => (),
+    }
+
+}
+
+fn write_build_rs(path: &path::Path, dest: &str) {
+    let path_string = String::from(path.to_str().unwrap());
+    let method_name = Ident::new(&("generate_".to_owned()+dest), Span::call_site());
+    let content = quote!{
+        extern crate auto_dlopen as dlopen;
+        use std::path;
+
+        fn main() {
+            let top_level_path = path::Path::new(#path_string);
+            match dlopen::#method_name(top_level_path) {
+                Ok(_) => (),
+                _ => panic!("Error! coudln't generate #dest/")
+            }
+        }
+    };
+    let src_file = path.join(dest).join("build.rs");
+    let mut file = match fs::File::create(&src_file) {
+        Err(oops) => panic! ("couldn't create build.rs file! {} {:?}", oops, src_file),
+        Ok(fl) => fl,
+    };
+
+    let output = format!("{}", content);
+    match file.write_all(output.as_bytes()) {
+        Err(oops) => panic!("cannot write into file {}", oops),
+        Ok(_) => (),
+    }
+
+
+    let mut command = Command::new("rustfmt");
+    command.arg(src_file);
+    match command.spawn(){
+        Err(oops) => panic!("rustfmt faild! {}", oops),
+        Ok(_) => (),
+    }
+
 }
