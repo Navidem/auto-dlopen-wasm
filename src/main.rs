@@ -5,9 +5,9 @@ use std::{path, env};
 fn main() -> Result<(), Box<std::error::Error>>{
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        panic!("\n\nPlease provide options:\n-standalone <path>: run the standalone auto-dlopen\n
-                -scaffold <path>: generate build scripts and Cargo.toml for \"native\" binary\n
-                -scaffold-wasm <path>: generate build scripts and Cargo.toml for \"wasm\" binary")
+        panic!("\n\nPlease provide options: {:?}\n-standalone <path>: run the standalone auto-dlopen\n
+-scaffold <path>: generate build scripts and Cargo.toml for \"native\" binary\n
+-scaffold-wasm <path>: generate build scripts and Cargo.toml for \"wasm\" binary", args)
     } 
     let option = &args[1];
     let path_string = &args[2];
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<std::error::Error>>{
             dl::generate_build_scripts(path, "crate");
         }
         "-scaffold-wasm" => {   //expects to see lazy module in src/lazy/mod.rs
-            let funcs = dl::run_analysis(&path.join("src/lazy"), "module")?;
+            let funcs = dl::run_analysis(&path, "module")?;
             println!("{:?}", funcs );
         }
         _ => panic!("\n\ninvalid option!\n-standalone <path>: run the standalone auto-dlopen\n

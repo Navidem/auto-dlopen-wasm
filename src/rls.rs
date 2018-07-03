@@ -23,15 +23,29 @@ pub fn run_analysis(path: &path::Path, mode: &str) -> Result< Vec<rls_analysis::
     let look_for: String;
     match mode {    //TODO: replace the hardcoded crate/module names
         "crate" => look_for = String::from_str("userProjectLazy")?,
-        "module" => look_for = String::from_str("lazy")?,
+        "module" => look_for = String::from_str("userProjectWasm")?,
         _ => panic!{"invalid rls_analysis mode: {}", mode}
     }
-
     for (id, membr_name) in roots {
         if membr_name == look_for {
-            let def = analysis.get_def(id)?;
-            println!("Root: {:?} {:?} {:?} {}", id, def.kind, def.name, membr_name );
-            traverse(id, def , &analysis, 0, &mut func_list)?;
+            let mut lazy_id = id;
+            if mode == "module" { //moving down this root to reach lazy module
+                let mut children = analysis.for_each_child_def(id, |id, def| (id, def.clone()))?;
+                for (child, def) in children{
+                    match def.kind {
+                        DefKind::Mod => {
+                            if def.name == "lazy"{
+                                lazy_id = child;
+                                break;
+                            }
+                        }
+                        _ => ()
+                    }
+                }
+            }
+            let def = analysis.get_def(lazy_id)?;
+            println!("Root: {:?} {:?} {:?} in crate {}", lazy_id, def.kind, def.name, membr_name );
+            traverse(lazy_id, def , &analysis, 0, &mut func_list)?;
         }
     }
     Ok(func_list)
