@@ -8,8 +8,9 @@ use self::rls_data::config::Config as AnalysisConfig;
 use std;
 use std::path;
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 
-pub fn run_analysis(path: &path::Path) -> Result< Vec<rls_analysis::Def>, Box<std::error::Error> >{
+pub fn run_analysis(path: &path::Path, mode: &str) -> Result< Vec<rls_analysis::Def>, Box<std::error::Error> >{
     let analysis = rls_analysis::AnalysisHost::new(rls_analysis::Target::Debug);
     let mut func_list: Vec<rls_analysis::Def> = Vec::new();
     //path_prefix: Cargo's working directory and will contain the target directory
@@ -19,10 +20,15 @@ pub fn run_analysis(path: &path::Path) -> Result< Vec<rls_analysis::Def>, Box<st
     analysis.reload(path, path)?;
     let mut roots = analysis.def_roots()?;
     roots.sort_unstable_by(|(_, name1), (_, name2)| name1.cmp(name2));
+    let look_for: String;
+    match mode {    //TODO: replace the hardcoded crate/module names
+        "crate" => look_for = String::from_str("userProjectLazy")?,
+        "module" => look_for = String::from_str("lazy")?,
+        _ => panic!{"invalid rls_analysis mode: {}", mode}
+    }
 
     for (id, membr_name) in roots {
-        //TODO: extract userProjectLazy from the Cargo.toml of lazy lib
-        if membr_name == "userProjectLazy" {
+        if membr_name == look_for {
             let def = analysis.get_def(id)?;
             println!("Root: {:?} {:?} {:?} {}", id, def.kind, def.name, membr_name );
             traverse(id, def , &analysis, 0, &mut func_list)?;

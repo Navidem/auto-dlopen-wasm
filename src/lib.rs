@@ -219,25 +219,25 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path) {
 
 }
 
-pub fn generate_client(path: &path::Path) -> Result<(), Box<std::error::Error>> {
+pub fn generate_client(path: &path::Path, mode: &str) -> Result<(), Box<std::error::Error>> {
     println!("Called generate_client");
-    let funcs = run_analysis(&path.join("lazy"))?;
+    let funcs = run_analysis(&path.join("lazy"), mode)?;
     let token_stream = create_func_tokens(funcs);
     write_client(&token_stream, path);
     Ok(())
 }
 
-pub fn generate_dylib (path: &path::Path) -> Result<(), Box<std::error::Error>> {
+pub fn generate_dylib (path: &path::Path, mode: &str) -> Result<(), Box<std::error::Error>> {
     println!("Called generate_dylib");
-    let funcs = run_analysis(&path.join("lazy"))?;
+    let funcs = run_analysis(&path.join("lazy"), mode)?;
     let token_stream = create_func_tokens(funcs);
     write_dylib(&token_stream, path);
     Ok(())
 }
 
-pub fn generate_build_scripts(path: &path::Path){
+pub fn generate_build_scripts(path: &path::Path, mode: &str){
     //dylib: build.rs & cargo
-    write_build_rs(path, "dylib");
+    write_build_rs(path, "dylib", mode);
     let dylib_cargo_content = "[package]
 name = \"userProjectDylib\"
 version = \"0.0.1\"
@@ -249,7 +249,7 @@ crate-type = [\"cdylib\"]
 [dependencies]
 userProjectLazy = {path = \"../lazy\"}
 [build-dependencies]
-auto-dlopen = {path = \"../../auto-dlopen\"}";
+auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}";
 
     let cargo_file = path.join("dylib/Cargo.toml");
     let mut file = match fs::File::create(&cargo_file) {
@@ -265,7 +265,7 @@ auto-dlopen = {path = \"../../auto-dlopen\"}";
 
 
     //client cargo and build.rs
-    write_build_rs(path, "client");
+    write_build_rs(path, "client", mode);
     let client_cargo_content = "[package]
 name = \"userProjectClient\"
 version = \"0.0.1\"
@@ -276,7 +276,7 @@ path = \"./src/lib.rs\"
 [dependencies]
 libloading = \"0.5.0\"
 [build-dependencies]
-auto-dlopen = {path = \"../../auto-dlopen\"}";
+auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}";
 
     let cargo_file = path.join("client/Cargo.toml");
     let mut file = match fs::File::create(&cargo_file) {
@@ -292,17 +292,17 @@ auto-dlopen = {path = \"../../auto-dlopen\"}";
 
 }
 
-fn write_build_rs(path: &path::Path, dest: &str) {
+fn write_build_rs(path: &path::Path, dest: &str, mode: &str) {
     let path_string = String::from(path.to_str().unwrap());
     let method_name = Ident::new(&("generate_".to_owned()+dest), Span::call_site());
     let err_msg = "Error! could not generate ".to_owned() + dest;
     let content = quote!{
-        extern crate auto_dlopen as dlopen;
+        extern crate auto_dlopen_wasm as dlopen;
         use std::path;
 
         fn main() {
             let top_level_path = path::Path::new(#path_string);
-            match dlopen::#method_name(top_level_path) {
+            match dlopen::#method_name(top_level_path, #mode) {
                 Ok(_) => (),
                 _ => panic!(#err_msg)
             }
