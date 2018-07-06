@@ -10,7 +10,7 @@ use proc_macro2::{TokenStream, Span, Ident};
 
 pub use std::{path, env, fs};
 pub use std::process::{Command, Stdio};
-use std::io::{Write, Read, Seek, SeekFrom};
+use std::io::{Write, Read};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::fs::OpenOptions;
 mod rls;
@@ -74,7 +74,20 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
 
         for (idx, par) in parms.iter().enumerate() {
             let pp = Ident::new(par, Span::call_site());
-            let tt = Ident::new(types[idx], Span::call_site());
+            let ty = types[idx];
+            let tt = match ty.find('<') { //if we have like Vec<i32>
+                Some(loc) => {
+                    let split: Vec<&str> = ty.split('<').collect();
+                    let out = Ident::new(split[0], Span::call_site());
+                    let inn = Ident::new(&split[1][..split.len()-1], Span::call_site());
+                    quote!(#out<#inn>)
+                }
+                None => {
+                    let ident = Ident::new(ty, Span::call_site());
+                    quote! (#ident)
+                }
+            };
+            // let tt = Ident::new(types[idx], Span::call_site());
             quote!(
                 #pp: #tt, 
             ).to_tokens(&mut parm_list_decl);
@@ -354,7 +367,7 @@ pub fn generate_build_scripts_wasm(path: &path::Path) -> Result<(), Box<std::err
     let static_content = syn::LitByteStr::new(&temp_content, Span::call_site());
 
     let src_file = path.join("src/lib.rs");
-    let mut file = match OpenOptions::new().read(true).write(true).open(&src_file) {
+    let mut file = match OpenOptions::new().read(true).open(&src_file) {
         Err(oops) => panic!("cannot open src/lib.rs {}", oops),
         Ok(fl) => fl,
     };
@@ -369,9 +382,14 @@ pub fn generate_build_scripts_wasm(path: &path::Path) -> Result<(), Box<std::err
 
     };
 
-    let output = format!("{}\n", custom_section_content) + &original_content;
-    file.seek(SeekFrom::Start(0))?;
+    let output = format!("{}\n\n", custom_section_content) + &original_content;
+    // file.seek(SeekFrom::Start(0))?;
     //file.truncate();
+    drop(file);
+    let mut file = match OpenOptions::new().truncate(true).write(true).open(&src_file) {
+        Err(oops) => panic!("cannot open src/lib.rs {}", oops),
+        Ok(fl) => fl,
+    };
 
     match file.write_all(output.as_bytes()) {
         Err(oops) => panic!("cannot write into file {}", oops),
