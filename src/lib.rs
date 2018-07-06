@@ -1,21 +1,25 @@
 extern crate proc_macro2;
-
+extern crate  syn;
 extern crate regex;
+extern crate byteorder;
 
 #[macro_use]
 extern crate quote;
 use quote::ToTokens;
 use proc_macro2::{TokenStream, Span, Ident};
+
 pub use std::{path, env, fs};
 pub use std::process::{Command, Stdio};
-use std::io::Write;
-
+use std::io::{Write, Read, Seek, SeekFrom};
+use byteorder::{LittleEndian, WriteBytesExt};
+use std::fs::OpenOptions;
 mod rls;
 
 pub use rls::run_analysis;
 use rls::rls_analysis::Def as Def;
 use regex::Regex;
 
+#[derive(Debug)]
 pub struct FuncTokens {
     name: Ident,
     param_list_decl: TokenStream,
@@ -330,5 +334,51 @@ fn format_src (src_file: path::PathBuf){
         Err(oops) => panic!("rustfmt faild! {}", oops),
         Ok(_) => (),
     }
+
+}
+pub fn generate_build_scripts_wasm(path: &path::Path) -> Result<(), Box<std::error::Error>> {
+    let funcs = run_analysis(&path, "module")?;
+    let token_stream = create_func_tokens(funcs);
+    let mut temp_content = vec![];
+    let mut static_content_len = 4;
+    //content: (num of funcs)|(func1 name len)|....
+    temp_content.write_u32::<LittleEndian>(token_stream.len() as u32).unwrap();
+    for func in token_stream{
+        let name_string = format!("{}", func.name);
+        let name_len = name_string.len() as u32;
+        static_content_len += 4 + name_len; //len = size literal and the actual string
+        temp_content.write_u32::<LittleEndian>(name_len).unwrap();
+        temp_content.extend_from_slice( name_string.as_bytes());
+
+    }
+    let static_content = syn::LitByteStr::new(&temp_content, Span::call_site());
+
+    let src_file = path.join("src/lib.rs");
+    let mut file = match OpenOptions::new().read(true).write(true).open(&src_file) {
+        Err(oops) => panic!("cannot open src/lib.rs {}", oops),
+        Ok(fl) => fl,
+    };
+
+    let mut original_content = String::new();
+    file.read_to_string(&mut original_content)?;
+    println!("{}", original_content);
+    let custom_section_content = quote!{
+        #![feature(wasm_custom_section)]
+        #[wasm_custom_section = "_lazy_wasm_"]
+        const WASM_CUSTOM_SECTION: [u8; #static_content_len as usize] = *#static_content; 
+
+    };
+
+    let output = format!("{}\n", custom_section_content) + &original_content;
+    file.seek(SeekFrom::Start(0))?;
+    //file.truncate();
+
+    match file.write_all(output.as_bytes()) {
+        Err(oops) => panic!("cannot write into file {}", oops),
+        Ok(_) => (),
+    }
+    format_src(src_file);
+    println!("src/lib.rs successfully writen for wasm_custom_section");
+    Ok(())
 
 }

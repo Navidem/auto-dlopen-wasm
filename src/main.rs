@@ -25,8 +25,7 @@ fn main() -> Result<(), Box<std::error::Error>>{
             dl::generate_build_scripts(path, "crate");
         }
         "-scaffold-wasm" => {   //expects to see lazy module in src/lazy/mod.rs
-            let funcs = dl::run_analysis(&path, "module")?;
-            println!("{:?}", funcs );
+            dl::generate_build_scripts_wasm(path)?;
         }
         _ => panic!("\n\ninvalid option!\n-standalone <path>: run the standalone auto-dlopen\n
                 -scaffold <path>: generate build scripts and Cargo.toml for \"native\" binary\n
