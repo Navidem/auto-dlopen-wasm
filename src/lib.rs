@@ -1,3 +1,4 @@
+#![recursion_limit="128"]
 extern crate proc_macro2;
 extern crate  syn;
 extern crate regex;
@@ -157,7 +158,7 @@ pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
     println!("dylib/ contents successfully created!" );
 
     if is_wasm {
-        put_wasm_cutom_section(&src_file, func_list);
+        put_wasm_custom_section(&src_file, func_list);
     }
 
 }
@@ -170,6 +171,7 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
 
     for func in func_list {
         let name = &func.name;
+        let string_name = String::from(format!("{}", name));
         let literal_name = proc_macro2::Literal::byte_string(format!("{}",name).as_bytes()); //required for lib.get(b"symbol")
         let param_list_decl = &func.param_list_decl;
         let param_list_call = &func.param_list_call;
@@ -179,40 +181,77 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
             fn #name(&self, #param_list_decl) #ret_expression;
         ).to_tokens(&mut trait_ts);
 
-        quote! (
-            fn #name(&self, #param_list_decl) #ret_expression { 
-                let lib = &self.dylib;
-                unsafe{
-                    let func: Symbol<unsafe extern fn (#param_list_decl) #ret_expression> = lib.get(#literal_name).unwrap();
-                    func(#param_list_call)
+        if is_wasm {
+            quote! (
+                fn #name(&self, #param_list_decl) #ret_expression {        
+                    let func = wasmloading::symbol(#string_name) as *mut fn(#param_list_decl) #ret_expression; 
+                    unsafe {    
+                        (*func)(#param_list_call)
+                        }
+                    }
+            ).to_tokens(&mut impl_ts);
+        }
+        else {
+            quote! (
+                fn #name(&self, #param_list_decl) #ret_expression { 
+                    let lib = &self.dylib;
+                    unsafe{
+                        let func: Symbol<unsafe extern fn (#param_list_decl) #ret_expression> = lib.get(#literal_name).unwrap();
+                        func(#param_list_call)
+                    }
                 }
-            }
-        ).to_tokens(&mut impl_ts);
+            ).to_tokens(&mut impl_ts);
+        }
     }
 
 
-    let content = quote! {
-        extern crate libloading;
-        use libloading::{Library,Symbol};
+    let content = match is_wasm {
+        false => quote! {
+            extern crate libloading;
+            use libloading::{Library,Symbol};
 
-        pub trait LazyDylibTrait {
-            #trait_ts
-        }
+            pub trait LazyDylibTrait {
+                #trait_ts
+            }
 
-        pub struct LazyDylib {
-            dylib: Library,
-        }
+            pub struct LazyDylib {
+                dylib: Library,
+            }
 
-        impl LazyDylib { 
-            pub fn open(path: &std::path::Path)  -> Result<Self, Box<std::error::Error>> {
-            let loaded_lib = Library::new(path)?;
-            Ok(LazyDylib{dylib: loaded_lib})
+            impl LazyDylib { 
+                pub fn open(path: &std::path::Path)  -> Result<Self, Box<std::error::Error>> {
+                let loaded_lib = Library::new(path)?;
+                Ok(LazyDylib{dylib: loaded_lib})
 
+                }
+            }
+            impl LazyDylibTrait for LazyDylib {
+                #impl_ts
+            }
+        },
+        true => quote! {
+            extern crate wasmloading;
+            static mut load_closure: Option<Box<FnMut(LazyDylib)>> = None;
+            pub trait LazyDylibTrait {
+                #trait_ts
+            }
+            pub struct LazyDylib {}
+            impl LazyDylib {
+                pub fn load<F>(url: &str, callback: F) 
+                    where F: 'static + FnMut(LazyDylib) {
+                        unsafe{ load_closure = Some(Box::new(callback)); }
+                        wasmloading::load(url, run_callback as *mut fn() as *mut ());
+                    }
+            }
+            impl LazyDylibTrait for LazyDylib {
+                #impl_ts
+            }
+            fn run_callback() {
+                let lz = LazyDylib{};
+                unsafe{ (load_closure.take().unwrap()) (lz) }
             }
         }
-        impl LazyDylibTrait for LazyDylib {
-            #impl_ts
-        }
+    
     };
 
 
@@ -362,7 +401,7 @@ fn format_src (src_file: &path::PathBuf){
 
 }
 
-fn put_wasm_cutom_section(src_file: &path::PathBuf, token_stream: &Vec<FuncTokens>) -> Result<(), Box<std::error::Error>> {
+fn put_wasm_custom_section(src_file: &path::PathBuf, token_stream: &Vec<FuncTokens>) -> Result<(), Box<std::error::Error>> {
     // let funcs = run_analysis(&path, "module")?;
     // let token_stream = create_func_tokens(funcs);
     let mut temp_content = vec![];
