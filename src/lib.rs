@@ -117,9 +117,9 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
  
 }
 
-pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path) {
+pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: bool) {
     let mut content = quote! {
-        extern crate userProjectLazy as lazy;
+        extern crate user_project_lazy as lazy;
     };
 
     for func in func_list{
@@ -153,13 +153,17 @@ pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path) {
         Err(oops) => panic!("cannot write into file {}", oops),
         Ok(_) => (),
     }
-    format_src(src_file);
+    format_src(&src_file);
     println!("dylib/ contents successfully created!" );
+
+    if is_wasm {
+        put_wasm_cutom_section(&src_file, func_list);
+    }
 
 }
 
 
-pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path) {
+pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: bool) {
     //let func = func_list.get(0).unwrap();
     let mut trait_ts = TokenStream::new();
     let mut impl_ts = TokenStream::new();
@@ -230,33 +234,33 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path) {
         Err(oops) => panic!("cannot write into file {}", oops),
         Ok(_) => (),
     }
-    format_src(src_file);
+    format_src(&src_file);
 
     println!("client/ contents successfully created!" );
 
 }
 
-pub fn generate_client(path: &path::Path, mode: &str) -> Result<(), Box<std::error::Error>> {
-    println!("Called generate_client");
+pub fn generate_client(path: &path::Path, mode: &str, is_wasm: bool) -> Result<(), Box<std::error::Error>> {
+    println!("Called generate_client {}", is_wasm);
     let funcs = run_analysis(&path.join("lazy"), mode)?;
     let token_stream = create_func_tokens(funcs);
-    write_client(&token_stream, path);
+    write_client(&token_stream, path, is_wasm);
     Ok(())
 }
 
-pub fn generate_dylib (path: &path::Path, mode: &str) -> Result<(), Box<std::error::Error>> {
-    println!("Called generate_dylib");
+pub fn generate_dylib (path: &path::Path, mode: &str, is_wasm: bool) -> Result<(), Box<std::error::Error>> {
+    println!("Called generate_dylib {}", is_wasm);
     let funcs = run_analysis(&path.join("lazy"), mode)?;
     let token_stream = create_func_tokens(funcs);
-    write_dylib(&token_stream, path);
+    write_dylib(&token_stream, path, is_wasm);
     Ok(())
 }
 
-pub fn generate_build_scripts(path: &path::Path, mode: &str){
+pub fn generate_build_scripts(path: &path::Path, mode: &str, is_wasm: bool){
     //dylib: build.rs & cargo
-    write_build_rs(path, "dylib", mode);
+    write_build_rs(path, "dylib", mode, is_wasm);
     let dylib_cargo_content = "[package]
-name = \"userProjectDylib\"
+name = \"user_project_dylib\"
 version = \"0.0.1\"
 
 [lib]
@@ -264,7 +268,7 @@ path = \"./src/lib.rs\"
 crate-type = [\"cdylib\"]
 
 [dependencies]
-userProjectLazy = {path = \"../lazy\"}
+user_project_lazy = {path = \"../lazy\"}
 [build-dependencies]
 auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}";
 
@@ -282,18 +286,22 @@ auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}";
 
 
     //client cargo and build.rs
-    write_build_rs(path, "client", mode);
+    write_build_rs(path, "client", mode, is_wasm);
+    let dep_str = match is_wasm {
+        true => "wasmloading = {path = \"/Users/nemamdoost/project/wasmloading\"}",
+        false => "libloading = \"0.5.0\""
+    };
     let client_cargo_content = "[package]
-name = \"userProjectClient\"
+name = \"user_project_client\"
 version = \"0.0.1\"
 
 [lib]
 path = \"./src/lib.rs\"
 
-[dependencies]
-libloading = \"0.5.0\"
+[dependencies]\n".to_owned() 
++ &dep_str.to_owned() +&"\n
 [build-dependencies]
-auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}";
+auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}".to_owned();
 
     let cargo_file = path.join("client/Cargo.toml");
     let mut file = match fs::File::create(&cargo_file) {
@@ -309,7 +317,7 @@ auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}";
 
 }
 
-fn write_build_rs(path: &path::Path, dest: &str, mode: &str) {
+fn write_build_rs(path: &path::Path, dest: &str, mode: &str, is_wasm: bool) {
     let path_string = String::from(path.to_str().unwrap());
     let method_name = Ident::new(&("generate_".to_owned()+dest), Span::call_site());
     let err_msg = "Error! could not generate ".to_owned() + dest;
@@ -319,12 +327,16 @@ fn write_build_rs(path: &path::Path, dest: &str, mode: &str) {
 
         fn main() {
             let top_level_path = path::Path::new(#path_string);
-            match dlopen::#method_name(top_level_path, #mode) {
+            match dlopen::#method_name(top_level_path, #mode, #is_wasm) {
                 Ok(_) => (),
                 _ => panic!(#err_msg)
             }
         }
     };
+    match fs::create_dir_all(path.join(dest)) {
+        Err(oops) => panic!("Couldn't create {}/ {}",dest, oops),
+        Ok(_) => (),
+    }
     let src_file = path.join(dest).join("build.rs");
     let mut file = match fs::File::create(&src_file) {
         Err(oops) => panic! ("couldn't create build.rs file! {} {:?}", oops, src_file),
@@ -336,11 +348,11 @@ fn write_build_rs(path: &path::Path, dest: &str, mode: &str) {
         Err(oops) => panic!("cannot write into file {}", oops),
         Ok(_) => (),
     }
-    format_src(src_file);
+    format_src(&src_file);
 
 }
 
-fn format_src (src_file: path::PathBuf){
+fn format_src (src_file: &path::PathBuf){
     let mut command = Command::new("rustfmt");
     command.arg(src_file);
     match command.spawn(){
@@ -349,9 +361,10 @@ fn format_src (src_file: path::PathBuf){
     }
 
 }
-pub fn generate_build_scripts_wasm(path: &path::Path) -> Result<(), Box<std::error::Error>> {
-    let funcs = run_analysis(&path, "module")?;
-    let token_stream = create_func_tokens(funcs);
+
+fn put_wasm_cutom_section(src_file: &path::PathBuf, token_stream: &Vec<FuncTokens>) -> Result<(), Box<std::error::Error>> {
+    // let funcs = run_analysis(&path, "module")?;
+    // let token_stream = create_func_tokens(funcs);
     let mut temp_content = vec![];
     let mut static_content_len = 4;
     //content: (num of funcs)|(func1 name len)|....
@@ -366,7 +379,7 @@ pub fn generate_build_scripts_wasm(path: &path::Path) -> Result<(), Box<std::err
     }
     let static_content = syn::LitByteStr::new(&temp_content, Span::call_site());
 
-    let src_file = path.join("src/lib.rs");
+    // let src_file = path.join("src/lib.rs");
     let mut file = match OpenOptions::new().read(true).open(&src_file) {
         Err(oops) => panic!("cannot open src/lib.rs {}", oops),
         Ok(fl) => fl,

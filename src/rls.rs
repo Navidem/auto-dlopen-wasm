@@ -15,7 +15,7 @@ pub fn run_analysis(path: &path::Path, mode: &str) -> Result< Vec<rls_analysis::
     let mut func_list: Vec<rls_analysis::Def> = Vec::new();
     //path_prefix: Cargo's working directory and will contain the target directory
     //base_dir: is the root of the whole workspace
-    println!("rls_analysis on {:?}", path);
+    println!("rls_analysis on {:?}\n {}", path, mode);
     generate_analysis_files(path)?;  // necessary to create the save-analysis dir
     analysis.reload(path, path)?;
     let mut roots = analysis.def_roots()?;
@@ -110,7 +110,7 @@ fn generate_analysis_files(dir : &path::Path) -> Result <(), Box<std::error::Err
         .arg("--manifest-path")
         .arg(manifest_path)
         .env("RUSTFLAGS", "-Z save-analysis")
-        .env("CARGO_TARGET_DIR", target_dir)
+        .env("CARGO_TARGET_DIR", &target_dir)
         //RUST_SAVE_ANALYSIS_CONFIG=' "reachable_only": true, "full_docs": true, "pub_only": false, 
             //"distro_crate": false, "signatures": false, "borrow_data": false'
         .env("RUST_SAVE_ANALYSIS_CONFIG", serde_json::to_string(&analysis_config)?,)
@@ -129,9 +129,8 @@ fn generate_analysis_files(dir : &path::Path) -> Result <(), Box<std::error::Err
     //command.args(&["rustc", "--lib", "--", "-Z", "save-analysis"]);
     command.arg("--lib");
     println!("Generating rls analysis data ...");
-    println!("{:?}", command );
+    println!("{:?}\n target_dir: {:?}\nAnalysis_Config: {:?}", command, target_dir, analysis_config );
     let mut child = command.spawn()?;
-
     let status = child.wait()?;
 
     if !status.success() {

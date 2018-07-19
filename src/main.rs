@@ -18,14 +18,14 @@ fn main() -> Result<(), Box<std::error::Error>>{
             let funcs = dl::run_analysis(&path.join("lazy"), "crate")?;
 
             let token_stream = dl::create_func_tokens(funcs);
-            dl::write_dylib(&token_stream, path);
-            dl::write_client(&token_stream, path);
+            dl::write_dylib(&token_stream, path, false);
+            dl::write_client(&token_stream, path, false);
         },
         "-scaffold" => {
-            dl::generate_build_scripts(path, "crate");
+            dl::generate_build_scripts(path, "crate", false);
         }
         "-scaffold-wasm" => {   //expects to see lazy module in src/lazy/mod.rs
-            dl::generate_build_scripts_wasm(path)?;
+            dl::generate_build_scripts(path, "crate", true);
         }
         _ => panic!("\n\ninvalid option!\n-standalone <path>: run the standalone auto-dlopen\n
                 -scaffold <path>: generate build scripts and Cargo.toml for \"native\" binary\n
