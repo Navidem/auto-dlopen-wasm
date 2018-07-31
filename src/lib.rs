@@ -77,7 +77,7 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
             let pp = Ident::new(par, Span::call_site());
             let ty = types[idx];
             let tt = match ty.find('<') { //if we have like Vec<i32>
-                Some(loc) => {
+                Some(_loc) => {
                     let split: Vec<&str> = ty.split('<').collect();
                     let out = Ident::new(split[0], Span::call_site());
                     let inn = Ident::new(&split[1][..split.len()-1], Span::call_site());
@@ -128,8 +128,11 @@ pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
         let param_list_decl = &func.param_list_decl;
         let param_list_call = &func.param_list_call;
         let ret_expression = &func.ret_expression;
+        // let dummy_name = Ident::new(&format!{"dummy{}", name}, Span::call_site());
         
         quote!(
+            // #[used]
+            // static #dummy_name: extern "C" fn(#param_list_decl)   #ret_expression = #name as  extern "C" fn(#param_list_decl)   #ret_expression;
             #[no_mangle]
             pub extern "C" fn #name(#param_list_decl)   #ret_expression {
                 lazy::#name(#param_list_call)
@@ -158,7 +161,10 @@ pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
     println!("dylib/ contents successfully created!" );
 
     if is_wasm {
-        put_wasm_custom_section(&src_file, func_list);
+        match put_wasm_custom_section(&src_file, func_list) {
+            Err(err) => panic!("failed to put wasm custom section {}", err),
+            Ok(_) => ()
+        }
     }
 
 }
@@ -181,17 +187,23 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
             fn #name(&self, #param_list_decl) #ret_expression;
         ).to_tokens(&mut trait_ts);
 
-        if is_wasm {
+        if is_wasm {    //for wasm (uses wasmloading)
             quote! (
                 fn #name(&self, #param_list_decl) #ret_expression {        
-                    let func = wasmloading::symbol(#string_name) as *mut fn(#param_list_decl) #ret_expression; 
-                    unsafe {    
-                        (*func)(#param_list_call)
+                    let symbol_name = String::from(#string_name);
+                    let name_len = symbol_name.len() * std::mem::size_of::<u8>();
+                    let name_addr = symbol_name.as_ptr();
+                    unsafe { 
+                        // let func = wasmloading::symbol(name_addr, name_len) as *mut fn(#param_list_decl) #ret_expression;    
+                        // (*func)(#param_list_call)
+                        let func = wasmloading::symbol(name_addr, name_len);
+                        let func = std::mem::transmute::<*mut (), fn(#param_list_decl) #ret_expression>(func);     
+                        (func)(#param_list_call)                        
                         }
                     }
             ).to_tokens(&mut impl_ts);
         }
-        else {
+        else {  //for ELF (uses libloading)
             quote! (
                 fn #name(&self, #param_list_decl) #ret_expression { 
                     let lib = &self.dylib;
@@ -205,7 +217,7 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
     }
 
 
-    let content = match is_wasm {
+    let content = match is_wasm {   
         false => quote! {
             extern crate libloading;
             use libloading::{Library,Symbol};
@@ -229,9 +241,9 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
                 #impl_ts
             }
         },
-        true => quote! {
+        true => quote! {    //uses wasmloading
             extern crate wasmloading;
-            static mut load_closure: Option<Box<FnMut(LazyDylib)>> = None;
+            static mut LOAD_CLOSURE: Option<Box<FnMut(LazyDylib)>> = None;
             pub trait LazyDylibTrait {
                 #trait_ts
             }
@@ -239,8 +251,13 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
             impl LazyDylib {
                 pub fn load<F>(url: &str, callback: F) 
                     where F: 'static + FnMut(LazyDylib) {
-                        unsafe{ load_closure = Some(Box::new(callback)); }
-                        wasmloading::load(url, run_callback as *mut fn() as *mut ());
+                        unsafe{ LOAD_CLOSURE = Some(Box::new(callback)); }
+                        let url_len = url.len() * std::mem::size_of::<u8>();
+                        let url_addr = url.as_ptr();
+                        unsafe{ 
+                            // wasmloading::load(url_addr, url_len, run_callback as *mut fn() as *mut ()); 
+                            wasmloading::load(url_addr, url_len, run_callback as fn() ); 
+                        }
                     }
             }
             impl LazyDylibTrait for LazyDylib {
@@ -248,7 +265,7 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
             }
             fn run_callback() {
                 let lz = LazyDylib{};
-                unsafe{ (load_closure.take().unwrap()) (lz) }
+                unsafe{ (LOAD_CLOSURE.take().unwrap()) (lz) }
             }
         }
     
@@ -276,6 +293,14 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
     format_src(&src_file);
 
     println!("client/ contents successfully created!" );
+
+
+    // if is_wasm {
+    //     match put_wasm_custom_section(&src_file, func_list) {
+    //         Err(err) => panic!("failed to put wasm custom section {}", err),
+    //         Ok(_) => ()
+    //     }
+    // }
 
 }
 
@@ -428,9 +453,13 @@ fn put_wasm_custom_section(src_file: &path::PathBuf, token_stream: &Vec<FuncToke
     file.read_to_string(&mut original_content)?;
     println!("{}", original_content);
     let custom_section_content = quote!{
-        #![feature(wasm_custom_section)]
-        #[wasm_custom_section = "_lazy_wasm_"]
-        const WASM_CUSTOM_SECTION: [u8; #static_content_len as usize] = *#static_content; 
+        // #![feature(wasm_custom_section,custom_attribute)]    //updated nightly doesn't support wasm_custom_section 
+        // #[wasm_custom_section = "_lazy_wasm_"]
+        // const WASM_CUSTOM_SECTION: [u8; #static_content_len as usize] = *#static_content; 
+        // #![feature(used)]
+        #[link_section = "_lazy_wasm_"]
+        // #[used]
+        pub static WASM_CUSTOM_SECTION: [u8; #static_content_len as usize] = *#static_content; 
 
     };
 
