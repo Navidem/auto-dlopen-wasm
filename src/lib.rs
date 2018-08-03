@@ -197,7 +197,7 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
                         // let func = wasmloading::symbol(name_addr, name_len) as *mut fn(#param_list_decl) #ret_expression;    
                         // (*func)(#param_list_call)
                         let func = wasmloading::symbol(name_addr, name_len);
-                        let func = std::mem::transmute::<*mut (), fn(#param_list_decl) #ret_expression>(func);     
+                        let func: fn(#param_list_decl) #ret_expression = std::mem::transmute(func);     
                         (func)(#param_list_call)                        
                         }
                     }
@@ -256,16 +256,23 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
                         let url_addr = url.as_ptr();
                         unsafe{ 
                             // wasmloading::load(url_addr, url_len, run_callback as *mut fn() as *mut ()); 
-                            wasmloading::load(url_addr, url_len, run_callback as fn() ); 
+                            wasmloading::load(url_addr, url_len, run_callback as extern "C" fn() ); 
                         }
                     }
             }
             impl LazyDylibTrait for LazyDylib {
                 #impl_ts
             }
-            fn run_callback() {
+            extern "C" fn run_callback() {
                 let lz = LazyDylib{};
-                unsafe{ (LOAD_CLOSURE.take().unwrap()) (lz) }
+                
+                let cl_val = unsafe{ 
+                    let mut c = LOAD_CLOSURE.take().unwrap();
+                    c(lz);
+                    c
+                };
+                std::mem::forget(cl_val);
+                
             }
         }
     
