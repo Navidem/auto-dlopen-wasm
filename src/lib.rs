@@ -81,6 +81,7 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
                     let split: Vec<&str> = ty.split('<').collect();
                     let out = Ident::new(split[0], Span::call_site());
                     let inn = Ident::new(&split[1][..split.len()-1], Span::call_site());
+                    // println!("found: {} {}",out, inn );
                     quote!(#out<#inn>)
                 }
                 None => {
@@ -120,7 +121,7 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
 
 pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: bool) {
     let mut content = quote! {
-        extern crate user_project_lazy as lazy;
+        extern crate userProjectLazy as lazy;
     };
 
     for func in func_list{
@@ -336,10 +337,11 @@ version = \"0.0.1\"
 
 [lib]
 path = \"./src/lib.rs\"
-crate-type = [\"cdylib\"]
+# crate-type = [\"cdylib\"]
 
 [dependencies]
-user_project_lazy = {path = \"../lazy\"}
+# user_project_lazy = {path = \"../lazy\"}
+userProjectLazy = {path = \"../lazy\"}
 [build-dependencies]
 auto-dlopen-wasm = {path = \"../../auto-dlopen-wasm\"}";
 

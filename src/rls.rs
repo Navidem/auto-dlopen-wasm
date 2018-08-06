@@ -26,6 +26,7 @@ pub fn run_analysis(path: &path::Path, mode: &str) -> Result< Vec<rls_analysis::
         "module" => look_for = String::from_str("userProjectWasm")?,
         _ => panic!{"invalid rls_analysis mode: {}", mode}
     }
+    println!("INTIAL ROOTS: {:?}", roots);
     for (id, membr_name) in roots {
         if membr_name == look_for {
             let mut lazy_id = id;
