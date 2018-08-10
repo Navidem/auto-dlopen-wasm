@@ -26,6 +26,8 @@ pub struct FuncTokens {
     param_list_decl: TokenStream,
     param_list_call: TokenStream,
     ret_expression: TokenStream,
+    // param_list_decl_with_vec: Option<TokenStream>,
+    // ret_expression_with_vec: Option<TokenStream>
 }
 
 
@@ -41,8 +43,10 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
         let text = func.sig.expect("Panic! No sig!!").text; //"fn foo() -> f64  {}";//
         let mut parms: Vec<&str> = Vec::new();
         let mut types: Vec<&str> = Vec::new();
-        let ret_ts : Option<TokenStream>;
+        let ret_ts: Option<TokenStream>;
+        // let mut ret_ts_with_vec: Option<TokenStream> = None;
         println!("{}", text);
+        // let mut has_vec_param: bool = false;
 
 
         let fn_name = re_name.captures(&text).expect("Panic! no fn_name!!").get(1).unwrap().as_str();
@@ -63,6 +67,9 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
                             let out = Ident::new(split[0], Span::call_site());
                             let inn = Ident::new(&split[1][..split[1].len()-1], Span::call_site());
                             println!("found: {} {}",out, inn );
+                            // let nil = Ident::new("nil", Span::call_site());
+                            // ret_ts_with_vec = Some(quote!(-> #nil));
+                            // has_vec_param = true;
                             Some(quote!(-> #out<#inn>))
                         }
                         None => {
@@ -89,6 +96,9 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
         let name = proc_macro2::Ident::new(fn_name, Span::call_site());
         let mut parm_list_decl = TokenStream::new();
         let mut parm_list_call = TokenStream::new();
+        // let mut parm_list_decl_w_vec = TokenStream::new();
+        // let v_i32 = Ident::new("i32", Span::call_site());
+
 
         for (idx, par) in parms.iter().enumerate() {
             let pp = Ident::new(par, Span::call_site());
@@ -99,10 +109,13 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
                     let out = Ident::new(split[0], Span::call_site());
                     let inn = Ident::new(&split[1][..split[1].len()-1], Span::call_site());
                     println!("found: {} {}",out, inn );
+                    // has_vec_param = true;
+                    // quote!(#v_i32, #v_i32, #v_i32).to_tokens(&mut parm_list_decl_w_vec);
                     quote!(#out<#inn>)
                 }
                 None => {
                     let ident = Ident::new(ty, Span::call_site());
+                    // quote!(#ident).to_tokens(&mut parm_list_decl_w_vec);
                     quote! (#ident)
                 }
             };
@@ -116,6 +129,13 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
             ).to_tokens(&mut parm_list_call);
 
         }
+        // match ret_ts_with_vec {
+        //     Some(_) => {
+        //         quote!(, #v_i32).to_tokens(&mut parm_list_decl_w_vec);
+        //         // quote!(#v_i32).to_tokens(&mut parm_list_decl);
+        //     }
+        //     None => ()
+        // }
         //let ret : Option<Ident> = Some(Ident::new(ret_val, Span::call_site()));
         //println!("{}",parm_list );
 
@@ -123,7 +143,12 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
             name: name, 
             param_list_call: parm_list_call, 
             param_list_decl: parm_list_decl,
-            ret_expression: ret_expression
+            ret_expression: ret_expression,
+            // ret_expression_with_vec: ret_ts_with_vec,
+            // param_list_decl_with_vec: match has_vec_param{
+            //                             true => Some(parm_list_decl_w_vec),
+            //                             false => None
+            //                             }
         };
         func_ts_list.push(func_ts);
 
@@ -152,7 +177,7 @@ pub fn write_dylib (func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
             // #[used]
             // static #dummy_name: extern "C" fn(#param_list_decl)   #ret_expression = #name as  extern "C" fn(#param_list_decl)   #ret_expression;
             #[no_mangle]
-            pub extern "C" fn #name(#param_list_decl)   #ret_expression {
+            pub extern "Rust" fn #name(#param_list_decl)   #ret_expression {
                 lazy::#name(#param_list_call)
             }
         ).to_tokens(&mut content);
@@ -200,6 +225,18 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
         let param_list_decl = &func.param_list_decl;
         let param_list_call = &func.param_list_call;
         let ret_expression = &func.ret_expression;
+        // let ret_exp_with_vec = &func.ret_expression_with_vec;
+        // let param_list_decl_with_vec = &func.param_list_decl_with_vec;
+
+        // let param_decl = match param_list_decl_with_vec {
+        //     Some(x) => x,
+        //     None => param_list_decl
+        // };
+        // let ret_exp = match ret_exp_with_vec {
+        //     Some(x) => x,
+        //     None => ret_expression
+        // };
+
 
         quote! (
             fn #name(&self, #param_list_decl) #ret_expression;
@@ -215,7 +252,8 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
                         // let func = wasmloading::symbol(name_addr, name_len) as *mut fn(#param_list_decl) #ret_expression;    
                         // (*func)(#param_list_call)
                         let func = wasmloading::symbol(name_addr, name_len);
-                        let func: fn(#param_list_decl) #ret_expression = std::mem::transmute(func);     
+                        let func: extern "Rust" fn(#param_list_decl) #ret_expression = std::mem::transmute(func);     
+                        // let func: fn(#param_decl) #ret_exp = std::mem::transmute(func);     
                         func(#param_list_call)   
                         }
                     }
