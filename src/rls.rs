@@ -97,6 +97,8 @@ fn generate_analysis_files(dir : &path::Path) -> Result <(), Box<std::error::Err
     let mut command = Command::new("cargo");
 
     let target_dir = dir.join("target").join("rls");
+    // std::fs::remove_dir_all(&target_dir)?;
+    // std::fs::create_dir(&target_dir)?;
     let manifest_path = dir.join("Cargo.toml");
 
     let analysis_config = AnalysisConfig {

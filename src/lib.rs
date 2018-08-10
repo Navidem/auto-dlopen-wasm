@@ -41,7 +41,7 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
         let text = func.sig.expect("Panic! No sig!!").text; //"fn foo() -> f64  {}";//
         let mut parms: Vec<&str> = Vec::new();
         let mut types: Vec<&str> = Vec::new();
-        let ret_ts : Option<Ident>;
+        let ret_ts : Option<TokenStream>;
         println!("{}", text);
 
 
@@ -55,14 +55,31 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
         match re_ret_val.captures(&text) {
             Some(x) => {
                     let ret_val = x.get(1).unwrap().as_str();
-                    ret_ts = Some(Ident::new(ret_val, Span::call_site()));
+                    // ret_ts = Some(Ident::new(ret_val, Span::call_site()));
+
+                    ret_ts = match ret_val.find('<') { //if we have like Vec<i32>
+                        Some(_loc) => {
+                            let split: Vec<&str> = ret_val.split('<').collect();
+                            let out = Ident::new(split[0], Span::call_site());
+                            let inn = Ident::new(&split[1][..split[1].len()-1], Span::call_site());
+                            println!("found: {} {}",out, inn );
+                            Some(quote!(-> #out<#inn>))
+                        }
+                        None => {
+                            let ident = Ident::new(ret_val, Span::call_site());
+                            Some (quote!(-> #ident))
+                        }
+                    };
             },
-            None => ret_ts = None,
+            // None => ret_ts = None,
+            None => ret_ts = Some(quote! ()),
+
         }
-        let ret_expression = match ret_ts {
-            Some(x) => quote! ( -> #x ),
-            None => quote! (),
-        };
+        // let ret_expression = match ret_ts {
+        //     Some(x) => quote! ( -> #x ),
+        //     None => quote! (),
+        // };
+        let ret_expression = ret_ts.unwrap();
         //let ret_val = re_ret_val.captures(&text).unwrap().get(1).unwrap().as_str();
 
         println!("fn_name {}\nparms {:?}\ntypes {:?}", fn_name, parms, types);
@@ -80,8 +97,8 @@ pub fn create_func_tokens(funcs: Vec<Def>) -> Vec<FuncTokens> {
                 Some(_loc) => {
                     let split: Vec<&str> = ty.split('<').collect();
                     let out = Ident::new(split[0], Span::call_site());
-                    let inn = Ident::new(&split[1][..split.len()-1], Span::call_site());
-                    // println!("found: {} {}",out, inn );
+                    let inn = Ident::new(&split[1][..split[1].len()-1], Span::call_site());
+                    println!("found: {} {}",out, inn );
                     quote!(#out<#inn>)
                 }
                 None => {
@@ -199,7 +216,7 @@ pub fn write_client(func_list: &Vec<FuncTokens>, path: &path::Path, is_wasm: boo
                         // (*func)(#param_list_call)
                         let func = wasmloading::symbol(name_addr, name_len);
                         let func: fn(#param_list_decl) #ret_expression = std::mem::transmute(func);     
-                        (func)(#param_list_call)                        
+                        func(#param_list_call)   
                         }
                     }
             ).to_tokens(&mut impl_ts);
